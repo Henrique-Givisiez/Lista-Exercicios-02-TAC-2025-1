@@ -1,4 +1,4 @@
-class S_AES:
+class SAES:
     def __init__(self, key):
         self.key = key
         self.__sbox = {
@@ -56,7 +56,7 @@ class S_AES:
         lsb = self.__sbox[byte & 0xF]
         return (msb << 4) | lsb
     
-    def keyExpansion(self) -> list[int]:
+    def key_expansion(self) -> list[int]:
         """
         Realiza a expansão da chave para o algoritmo de criptografia.
 
@@ -79,13 +79,46 @@ class S_AES:
                 self.__round_keys[i] = self.__round_keys[i-2] ^ self.__g(self.__round_keys[i-1], i//2 - 1)
         return
 
+    def pega_round_keys(self):
+        return self.__round_keys 
+
+    def cria_state_array(self, bloco: list[int]) -> list[list[int]]:
+        b0 = (bloco >> 12) & 0xF
+        b1 = (bloco >> 8) & 0xF
+        b2 = (bloco >> 4) & 0xF
+        b3 = bloco & 0xF
+        return [
+                [b0, b2], 
+                [b1, b3]
+               ]
+
+    def cria_blocos(self, texto: str) -> list[int]:
+        # Codifica texto em bytes
+        dados = list(texto.encode("utf-8"))
+
+        # Se quantidade de bytes for ímpar, adiciona padding com 0
+        if len(dados) % 2 != 0:
+            dados.append(0x00)
+
+        # Agrupa em blocos de 2 bytes (16 bits)
+        blocos = []
+        for i in range(0, len(dados), 2):
+            bloco = (dados[i] << 8) | dados[i+1]
+            blocos.append(bloco)
+
+        return blocos
+
+    def execucao(self, plaintext: str):
+        blocos = self.cria_blocos(plaintext)
+        for b in blocos:
+            state_array = self.cria_state_array(b)
+            print(state_array)
+        return
+    
+
 def main():
-    chave_qualquer = 0xcafe
-    rounds_keys = S_AES(chave_qualquer).keyExpansion()
-    print("Chave original: ", hex(chave_qualquer))
-    print("Chaves expandidas:")
-    for i in range(0, len(rounds_keys), 2):
-        print("Chave round ", i//2, ": ", hex(rounds_keys[i]), hex(rounds_keys[i+1]))
+    t = SAES(0xcafe)
+    t.execucao("Hi")
     return 0
 
 if __name__ == "__main__":
