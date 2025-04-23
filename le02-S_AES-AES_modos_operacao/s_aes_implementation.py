@@ -1,5 +1,6 @@
+import base64
 class SAES:
-    def __init__(self, key):
+    def __init__(self, key: int):
         self.key = key
         self.__sbox = {
             0x0: 0x9, 0x1: 0x4, 0x2: 0xA, 0x3: 0xB,
@@ -79,20 +80,7 @@ class SAES:
                 self.__round_keys[i] = self.__round_keys[i-2] ^ self.__g(self.__round_keys[i-1], i//2 - 1)
         return
 
-    def pega_round_keys(self):
-        return self.__round_keys 
-
-    def cria_state_array(self, bloco: list[int]) -> list[list[int]]:
-        b0 = (bloco >> 12) & 0xF
-        b1 = (bloco >> 8) & 0xF
-        b2 = (bloco >> 4) & 0xF
-        b3 = bloco & 0xF
-        return [
-                [b0, b2], 
-                [b1, b3]
-               ]
-
-    def cria_blocos(self, texto: str) -> list[int]:
+    def __cria_blocos(self, texto: str) -> list[int]:
         # Codifica texto em bytes
         dados = list(texto.encode("utf-8"))
 
@@ -108,18 +96,111 @@ class SAES:
 
         return blocos
 
-    def execucao(self, plaintext: str):
-        blocos = self.cria_blocos(plaintext)
-        for b in blocos:
-            state_array = self.cria_state_array(b)
-            print(state_array)
+    def __cria_state_array(self, bloco: list[int]) -> list[list[int]]:
+        b0 = (bloco >> 12) & 0xF
+        b1 = (bloco >> 8) & 0xF
+        b2 = (bloco >> 4) & 0xF
+        b3 = bloco & 0xF
+        return [[b0, b2], 
+                [b1, b3]]
+
+    def __add_round_key(self, state_arr: list[list[int]], round: int) -> list[list[int]]:
+        b0 = state_arr[0][0]
+        b1 = state_arr[1][0]
+        b2 = state_arr[0][1]
+        b3 = state_arr[1][1]
+        if round == 0:
+            words = self.__round_keys[0:2]
+        elif round == 1:
+            words = self.__round_keys[2:4]
+        else:
+            words = self.__round_keys[4:]
+        b0 = b0 ^ ((words[0] >> 4) & 0xF)
+        b1 = b1 ^ (words[0] & 0xF)
+        b2 = b2 ^ ((words[1] >> 4) & 0xF)
+        b3 = b3 ^ (words[1] & 0xF)
+        
+        return [[b0,b2],
+                [b1,b3]]
+    
+    def __shift_rows(self, state_arr: list[list[int]]) -> list[list[int]]:
+        state_arr[1][0], state_arr[1][1] = state_arr[1][1], state_arr[1][0]
+        return state_arr
+    
+    def __mix_columns(self, state_arr: list[list[int]]) -> list[list[int]]:
+        result = [[0, 0], [0, 0]]
+        for col in range(2):
+            a = state_arr[0][col]
+            b = state_arr[1][col]
+            result[0][col] = self.__gf_mul(1, a) ^ self.__gf_mul(4, b)
+            result[1][col] = self.__gf_mul(4, a) ^ self.__gf_mul(1, b)
+        return result
+    
+    def __gf_mul(self, a, b):
+        p = 0
+        for i in range(4):  # max 4 bits
+            if b & 1:
+                p ^= a
+            carry = a & 0x8  # se o bit mais alto está setado (x³)
+            a <<= 1
+            if carry:
+                a ^= 0x13  # módulo irreducível x⁴ + x + 1
+            b >>= 1
+        return p & 0xF  # garante que o resultado está em 4 bits
+
+    def imprime(self, blocos_cifrados: list[int]) -> None:
+        bytes_cifrados = bytearray()
+        for bloco in blocos_cifrados:
+            bytes_cifrados.append((bloco >> 8) & 0xFF)
+            bytes_cifrados.append(bloco & 0xFF)
+
+        print("Hexadecimal:", bytes_cifrados.hex())
+
+        b64 = base64.b64encode(bytes_cifrados).decode()
+        print("Base64:", b64)
         return
     
+    def criptografa(self, plaintext: str):
+        blocos = self.__cria_blocos(plaintext)
+        blocos_cifrados = []
+        for b in blocos:
+            state_array = self.__cria_state_array(b)
+            state_array = self.__add_round_key(state_array, 0)
+            for i in range(1,3):
+                byte1 = (state_array[0][0] << 4) | state_array[1][0]
+                col1 = self.__sub_nib(byte1)
+                byte2 = (state_array[0][1] << 4) | state_array[1][1]
+                col2 = self.__sub_nib(byte2)
+                state_array = [[(col1 >> 4) & 0xF, (col2 >> 4) & 0xF],
+                               [col1 & 0xF, col2 & 0xF]]
+
+                state_array = self.__shift_rows(state_array)
+
+                if i != 2:
+                    state_array = self.__mix_columns(state_array)
+
+                state_array = self.__add_round_key(state_array, i)
+
+            # Converte a matriz 2x2 de nibbles de volta para inteiro de 16 bits
+            b0 = state_array[0][0]
+            b1 = state_array[1][0]
+            b2 = state_array[0][1]
+            b3 = state_array[1][1]
+            bloco_final = (b0 << 12) | (b1 << 8) | (b2 << 4) | b3
+            blocos_cifrados.append(bloco_final)
+
+        return blocos_cifrados
 
 def main():
-    t = SAES(0xcafe)
-    t.execucao("Hi")
-    return 0
+    key = 0xCAFE
+    s_aes = SAES(key=key)
+    s_aes.key_expansion()
+    
+    plaintext = "string curta"
+    mensagem_cifrada = s_aes.criptografa(plaintext)
+
+    s_aes.imprime(mensagem_cifrada)
+    return
 
 if __name__ == "__main__":
     main()
